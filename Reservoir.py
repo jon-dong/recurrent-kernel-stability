@@ -1,15 +1,13 @@
-
 import numpy as np
 import torch
 
 use_cuda = torch.cuda.is_available()
-# use_cuda = False
 default_device = torch.device("cuda" if use_cuda else "cpu")
 
 
-class MinimalReservoir(torch.nn.Module):
+class Reservoir(torch.nn.Module):
     """
-    Implements a minimal Reservoir Computing algorithm.
+    Implements a minimal Reservoir Computing algorithm for stability analysis.
     :param input_size: dimension of the input
     :param res_size: number of units in the reservoir
     :param input_scale: scale of the input-to-reservoir matrix
@@ -20,19 +18,19 @@ class MinimalReservoir(torch.nn.Module):
 
     def __init__(self, input_size, res_size,
                  input_scale=1.0, res_scale=1.0, f='tanh',
-                 seed=1, device=default_device):
-        super(MinimalReservoir, self).__init__()
+                 seed=None, device=default_device):
+        super(Reservoir, self).__init__()
 
         # Parameter initialization
         self.input_size = input_size
         self.res_size = res_size
         self.input_scale = input_scale
         self.res_scale = res_scale
-        self.seed = seed
+#         self.seed = seed
         self.device = device
 
         # Weights generation
-        torch.manual_seed(self.seed)
+#         torch.manual_seed(self.seed)
         self.W_in = torch.randn(res_size, input_size).to(self.device)
         self.W_res = torch.randn(res_size, res_size).to(self.device)
 
@@ -57,15 +55,16 @@ class MinimalReservoir(torch.nn.Module):
         Compute the reservoir states for the given sequence
         :param input_data: input sequence of shape (seq_len, input_size)
         :param initial_state: initial reservoir state at t=0 (res_size, )
-        :return: successive reservoir states (seq_len, res_size) or (seq_len, res_size+input_size)
+        :return: successive reservoir states (seq_len+1, res_size)
         """
         input_data = input_data.to(self.device)
         seq_len = input_data.shape[0]
-        states = torch.zeros((seq_len+1, self.res_size)).to(self.device)  # will contain the reservoir states
+        states = torch.zeros((seq_len+1, self.res_size)).to(self.device)  
+        # will contain the reservoir states
         if initial_state is not None:
             states[0, :] = initial_state
 
-        for i in range(1, seq_len+1):
+        for i in range(seq_len):
             states[i+1, :] = self.f(
                     self.input_scale * self.W_in @ input_data[i, :] +
                     self.res_scale * self.W_res @ states[i, :]
@@ -79,8 +78,10 @@ class MinimalReservoir(torch.nn.Module):
         Follows the distance between the reservoir states through time, whether they converge to the same trajectory
         """
         
-        initial_state_1 = torch.randn(self.res_size) / np.sqrt(self.res_size)
-        initial_state_2 = torch.randn(self.res_size) / np.sqrt(self.res_size)
-        trained_state_1 = self.forward(input_data,initial_state_1)
-        trained_state_2 = self.forward(input_data,initial_state_2)
-        state_diff = torch.linalg.norm(trained_state_1-trained_state_2, dim=1)
+        initial_state1 = torch.randn(self.res_size).to(self.device) / np.sqrt(self.res_size)
+        initial_state1 = initial_state1 / torch.norm(initial_state1)
+        initial_state2 = torch.randn(self.res_size).to(self.device) / np.sqrt(self.res_size)
+        initial_state2 = initial_state2 / torch.norm(initial_state2)
+        states1 = self.forward(input_data,initial_state1)
+        states2 = self.forward(input_data,initial_state2)
+        return torch.sum((states1 - states2)**2, dim=1)
